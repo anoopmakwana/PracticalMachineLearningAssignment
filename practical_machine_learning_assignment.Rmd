@@ -1,0 +1,129 @@
+---
+title: "Practical Machine Learning - Assignment"
+output: html_document
+author: Anoop Makwana
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will use data recorded from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The goal of this project is to predict the manner in which the participants did the exercise. This is the classe variable of the training set, which classifies the correct and incorrect outcomes into A, B, C, D, and E categories. This report describes how the model for the project was built, its cross validation, expected out of sample error calculation, and the choices made
+
+## Data Exploration
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source:
+http://groupware.les.inf.puc-rio.br/har
+
+The next step is loading the dataset from the URL provided above. 
+
+```{r ,message=FALSE, warning=FALSE}
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+set.seed(12345)
+
+UrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(UrlTrain), na.strings = c("NA", "#DIV/0!", ""))
+testing  <- read.csv(url(UrlTest), na.strings = c("NA", "#DIV/0!", ""))
+```
+
+We take a quick look at the data and particularly at classe which is the variable we need to predict
+
+```{r ,message=FALSE, warning=FALSE}
+str(training, list.len=20)
+```
+
+Datasets have 160 variables. Let’s first do some basic data clean-up:
+
+- Removing all columns that are mostly NA
+- Removing Near Zero Variance variables
+- Removing identification and time only variables (columns 1 to 5)
+
+```{r ,message=FALSE, warning=FALSE}
+NZV <- nearZeroVar(training)
+training <- training[, -NZV]
+
+AllNA    <- sapply(training, function(x) mean(is.na(x))) > 0.95
+training <- training[, AllNA==FALSE]
+
+training <- training[, -(1:5)]
+testing  <- testing[, -(1:5)]
+dim(training)
+```
+
+The training dataset is then partinioned in 2 sets to create a TrainSet (70% of the data) which will be used for training the model and the remaining 30% will be used for validation. Test dataset will not be touched and only used for quiz results.
+
+```{r ,message=FALSE, warning=FALSE}
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]
+TestSet  <- training[-inTrain, ]
+```
+
+With the cleaning process above, the number of variables for the analysis has been reduced to 54 only. To make an even more compact analysis, a PCA (Principal Components Analysis) could be performed as pre-processing step to the datasets (incase we dont get good results). Nevertheless, to keep the analysis simple, we will not apply it now
+
+## Modeling
+
+### Decision Tree
+
+```{r ,message=FALSE, warning=FALSE}
+set.seed(12345)
+model <- rpart(classe ~ ., data=TrainSet, method="class")
+
+# prediction on Test dataset
+prediction <- predict(model, newdata=TestSet, type="class")
+confusionMatrix <- confusionMatrix(prediction, TestSet$classe)
+confusionMatrix
+```
+
+We are getting an accuracy of 73% on validation data with decision tree. We will explore some other models to check if we can get better results
+
+### Random Forest
+
+```{r ,message=FALSE, warning=FALSE}
+set.seed(12345)
+model <- train(classe ~ ., data=TrainSet, method="rf", trControl=trainControl(method="cv", number=3, verboseIter=FALSE))
+model$finalModel
+
+# prediction on Test dataset
+prediction <- predict(model, newdata=TestSet)
+confusionMatrix <- confusionMatrix(prediction, TestSet$classe)
+confusionMatrix
+```
+
+99.68% is a very impressive number for accuracy. Since we are getting a pretty high accuracy with Random Forest we will not explore other models.
+
+#### Relative importance of the variables
+
+```{r ,message=FALSE, warning=FALSE}
+# estimate variable importance
+importance <- varImp(model, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+```
+
+#### Estimation of the out-of-sample error rate
+
+The TestSet was removed and left untouched during training and optimizing of the Random Forest algorithm. Therefore this testing subset gives an unbiased estimate of the Random Forest algorithm’s prediction accuracy (99.68% as calculated above). The Random Forest’s out-of-sample error rate is derived by the formula 100% - Accuracy = 0.32%
+
+## Coursera Submission (Applying the Selected Model to the Test Data)
+
+```{r ,message=FALSE, warning=FALSE}
+predictTEST <- predict(model, newdata=testing)
+predictTEST
+```
